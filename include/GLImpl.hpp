@@ -1,8 +1,8 @@
 #pragma once
+
 #include <GL/gl3w.h>
 #include <GLFW/glfw3.h>
 #include "GLContext.hpp"
-
 #include <memory>
 #include <vector>
 #include <iostream>
@@ -175,7 +175,8 @@ public:
         return glfwWindowShouldClose(window.get());
     }
     const GLMAXINTEGER & MaxInteger()const{
-
+        static GLMAXINTEGER a;
+        return a;
     }
     void DispatchEvent()
     {
@@ -194,7 +195,6 @@ public:
         Destroy();
     }
 };
-
 
 
 struct GL3WImpl
