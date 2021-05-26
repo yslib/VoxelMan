@@ -294,20 +294,17 @@ int main( int argc, char **argv )
 		}
 	};
 
-	int req_format = STBI_rgb_alpha;
-	int width, height, orig_format;
-	unsigned char *data = stbi_load( "test.jpg", &width, &height, &orig_format, req_format );
-
-	if ( data == NULL ) {
-		SDL_Log( "Loading image failed: %s", stbi_failure_reason() );
-		exit( 1 );
-	}
-
 	while(window.Wait() == true){
 		window.DispatchEvent();
-		window.CopyImageToScreen(data,width,height);
+		char *pixels;
+		uint32_t w,h;
+		int pitch;
+		window.BeginCopyImageToScreen((void**)&pixels, w, h, pitch);
+
+		// draw on pixels
+
+		window.EndCopyImageToScreen();
 		window.Present();
 	}
-
 	return 0;
 }

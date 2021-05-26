@@ -18,7 +18,6 @@ class SDL2Impl:public EventListenerTraits{
 
     std::unique_ptr<SDL_Renderer,SDL2RendererDeleter> renderer;
 
-    uint32_t screenWidth,screenHeight;
 
     struct SDLTextureDeleter{
         void operator()(SDL_Texture * t){
@@ -26,16 +25,17 @@ class SDL2Impl:public EventListenerTraits{
         }
     };
     std::unique_ptr<SDL_Texture, SDLTextureDeleter> screenTexture;
+
     
     void InitSDL2(){
-        screenWidth = 1024;
-        screenHeight =768;
+        ScreenWidth = 1024;
+        ScreenHeight = 768;
 
         int ret = SDL_Init( SDL_INIT_EVERYTHING );
         if ( ret != 0 ) {
             return;
         }
-        auto pWin = (SDL_CreateWindow( "VoxelMan", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, screenWidth, screenHeight, 0 ));
+        auto pWin = (SDL_CreateWindow( "VoxelMan", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, ScreenWidth, ScreenHeight, 0 ));
         window.reset(pWin);
         if(window == nullptr){
             return;
@@ -49,7 +49,7 @@ class SDL2Impl:public EventListenerTraits{
 
         SDL_Texture * screen_texture = SDL_CreateTexture(renderer.get(),
         SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING,
-        screenHeight, screenWidth);
+        ScreenWidth, ScreenHeight);
 
         if(screen_texture == nullptr){
             return;
@@ -160,9 +160,8 @@ class SDL2Impl:public EventListenerTraits{
         EventListenerTraits::FileDropEvent(nullptr, 1, (const char**)&fileName);
         SDL_free(e->file);
     }
-
-
     public:
+    uint32_t ScreenWidth, ScreenHeight;
     SDL2Impl()
     {
         InitSDL2();
@@ -197,9 +196,28 @@ class SDL2Impl:public EventListenerTraits{
         return true;
     }
 
-    void CopyImageToScreen(void * data, int width, int height){
-        SDL_UpdateTexture(screenTexture.get(),nullptr,data,screenWidth * screenHeight * 4);
-        SDL_RenderCopy(renderer.get(), screenTexture.get(), NULL, NULL);
+    void BeginCopyImageToScreen(void ** pixels, uint32_t& width, uint32_t&height, int& pitch){
+        assert(screenTexture);
+        assert(renderer);
+        if(SDL_LockTexture(screenTexture.get(), nullptr, pixels, &pitch) != 0){
+            std::cout<<"Lock failed\n";
+        }
+        width = ScreenWidth;
+        height = ScreenHeight;
+    }
+
+    void EndCopyImageToScreen(){
+        assert(screenTexture);
+        assert(renderer);
+        SDL_UnlockTexture(screenTexture.get());
+        if(SDL_RenderCopy(renderer.get(), screenTexture.get(), nullptr, nullptr)!=0){
+            std::cout<<"Copy failed\n";
+        }
+    }
+
+    void Clear(){
+        SDL_RenderClear(renderer.get());
+
     }
 
     void DispatchEvent()
