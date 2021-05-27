@@ -10,6 +10,7 @@
 #include <VMUtils/vmnew.hpp>
 #include <VMUtils/log.hpp>
 #include <VMUtils/cmdline.hpp>
+#include <VMUtils/timer.hpp>
 #include <VMFoundation/largevolumecache.h>
 #include <VMFoundation/mappingtablemanager.h>
 #include <VMFoundation/rawreader.h>
@@ -147,7 +148,7 @@ int main( int argc, char **argv )
 	a.add<string>( "cam", '\0', "Specifies camera json file", false );
 	a.add<string>( "tf", '\0', "Specifies transfer function text file", false );
 	a.add<string>( "pd", '\0', "Specifies plugin load directoy", false, "plugins" );
-	a.add<string>( "nw", 'n', "Launches without window, just render one frame and output" );
+	a.add<string>( "nw", 'n', "Launches without window, just render one frame and output", false);
 	a.parse_check( argc, argv );
 
 	Vec2i windowSize;
@@ -453,10 +454,10 @@ int main( int argc, char **argv )
 				Vec4f color(0,0,0,0);
 				auto pixel = (char *)buffer + y * pitch + 4 * x;
 				if ( iter.Valid() == false ) {
-					pixel[ 0 ] = color.x * 255;
-					pixel[ 1 ] = color.y * 255;
-					pixel[ 2 ] = color.z * 255;
-					pixel[ 3 ] = color.w * 255;
+					pixel[ 3 ] = color.x * 255;
+					pixel[ 2 ] = color.y * 255;
+					pixel[ 1 ] = color.z * 255;
+					pixel[ 0 ] = color.w * 255;
 				} else {
 					while ( iter.Valid() && color.w < 0.99 ) {
 						++iter;
@@ -475,32 +476,43 @@ int main( int argc, char **argv )
 					color.y = Clamp(color.y,0.0,1.0);
 					color.z = Clamp(color.z,0.0,1.0);
 					color.w = Clamp(color.w,0.0,1.0);
-					pixel[ 0 ] = color.x * 255;
-					pixel[ 1 ] = color.y * 255;
-					pixel[ 2 ] = color.z * 255;
-					pixel[ 3 ] = color.w * 255;
+					pixel[ 3 ] = color.x * 255;
+					pixel[ 2 ] = color.y * 255;
+					pixel[ 1 ] = color.z * 255;
+					pixel[ 0 ] = color.w * 255;
 					//std::cout<<(int)pixel[0]<<" "<<(int)pixel[1]<<" "<<(int)pixel[2]<<" "<<(int)pixel[3]<<std::endl;
 				}
 				rayCount++;
 				if ( rayCount % ( ( width * height ) / 100 ) == 0 ) {
 					renderProgress = rayCount * 1.0 / ( width * height );
-					std::cout << "Render Progress: [" << renderProgress * 100 << "%]\n";
+					//std::cout << "Render Progress: [" << renderProgress * 100 << "%]\n";
 				}
 			}
 		}
 	};
 
 	auto AppLoop = [ & ]() {
+		Timer timer;
+		timer.start();
 		auto grid = dataBound.GenGrid( gridCount );
 		if ( !hasWindow && window.HasWindow() ) {
 			while ( window.Wait() == true ) {
 				window.DispatchEvent();
+				if(window.Quit){
+					break;
+				}
 				char *pixels;
 				uint32_t w, h;
 				int pitch;
 				window.BeginCopyImageToScreen( (void **)&pixels, w, h, pitch );
+
+				auto start = timer.elapsed();
 				CPURenderLoop( pixels, w, h, grid );
+				auto end = timer.elapsed();
+				auto sec = end.s() - start.s();
+				auto fps = "VoxelMan: "+std::to_string(1.0/sec)+" fps";
 				window.EndCopyImageToScreen();
+				window.SetWindowTitle(fps.c_str());
 				window.Present();
 			}
 		} else {

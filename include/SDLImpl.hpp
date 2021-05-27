@@ -26,10 +26,13 @@ class SDL2Impl:public EventListenerTraits{
     };
     std::unique_ptr<SDL_Texture, SDLTextureDeleter> screenTexture;
 
+
+
     
     void InitSDL2(){
         ScreenWidth = 1024;
         ScreenHeight = 768;
+        Quit = false;
 
         int ret = SDL_Init( SDL_INIT_EVERYTHING );
         if ( ret != 0 ) {
@@ -162,6 +165,7 @@ class SDL2Impl:public EventListenerTraits{
     }
     public:
     uint32_t ScreenWidth, ScreenHeight;
+    bool Quit;
     SDL2Impl()
     {
         InitSDL2();
@@ -180,6 +184,10 @@ class SDL2Impl:public EventListenerTraits{
         // TODO::
     }
 
+    void SetWindowTitle(const char * title){
+        SDL_SetWindowTitle(window.get(),title);
+    }
+
     bool HasWindow()const
     {
         return true;
@@ -187,13 +195,7 @@ class SDL2Impl:public EventListenerTraits{
 
     bool Wait()const
     {
-        SDL_Event evt;
-		if ( SDL_PollEvent( &evt ) ) {
-			if ( evt.type == SDL_QUIT ) {
-                return false;
-			}
-        }
-        return true;
+        return !Quit;
     }
 
     void BeginCopyImageToScreen(void ** pixels, uint32_t& width, uint32_t&height, int& pitch){
@@ -245,6 +247,11 @@ class SDL2Impl:public EventListenerTraits{
                 case SDL_DROPFILE:
                 {
                     SDL2Impl::SDLDropEventHandler((SDL_DropEvent*)&evt.drop);
+                    break;
+                }
+                case SDL_QUIT:
+                {
+                    Quit = true;
                     break;
                 }
                 default:break;
