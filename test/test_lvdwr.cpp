@@ -65,7 +65,7 @@ TEST( test, test_cachewrite )
 		{ 256, 256, 256 }
 	};
 	int blockSideInLog = 6;
-	int padding = 2;
+	int padding = 0;
 	int blockSide = 1 << blockSideInLog;
 
 	const char *fileName = "test_cache_write.lvd";

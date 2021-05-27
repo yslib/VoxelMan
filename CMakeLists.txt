@@ -17,7 +17,4 @@ include(scripts/external.cmake)
 vm_external_module(GIT_REPOSITORY https://github.com/cad420/VMCore.git GIT_TAG ysldev)
 add_subdirectory(src)
 
-option(BUILD_TEST On)
-if(BUILD_TEST)
 add_subdirectory(test)
-endif()
