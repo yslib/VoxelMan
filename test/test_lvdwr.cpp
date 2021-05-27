@@ -170,7 +170,7 @@ TEST( test, test_cachewrite_abcflow )
 		dataSize.ToPoint3()
 	};
 	int blockSideInLog = 6;
-	int padding = 2;
+	int padding = 0;
 	int blockSide = 1 << blockSideInLog;
 
 	const char *fileName = "abcflow.lvd";
