@@ -393,6 +393,14 @@ int main( int argc, char **argv )
 		}
 	};
 
+	auto SampleFromTransferFunction = [&](char a)->Vec4f{
+
+	};
+
+	auto SampleFromVolume = [&](const Point3i & cellIndex, const Point3f & globalSamplePos)->char{
+
+	};
+
 	auto AppLoop = [ & ]() {
 		auto g = dataBound.GenGrid(grid);
 		while ( window.Wait() == true ) {
@@ -413,19 +421,24 @@ int main( int argc, char **argv )
 					auto iter = g.IntersectWith(r);
 					float tPrev = iter.Pos, tCur;
 					Point3i cellIndex = iter.CellIndex;
-					while(iter.Valid()){
+
+					Vec4f color;
+					while(iter.Valid() && color.w < 0.99){
 						++iter;
 						tCur = iter.Pos;
 						while(tPrev < tCur){
-							// Sample in the cellIndex
-							// Calc local sample point
+							// TODO:: Evaluates local sample point in current block
+							auto globalPos = r(tPrev);
+							auto val = SampleFromVolume(cellIndex,globalPos);
+							Vec4f sampledColorAndOpacity = SampleFromTransferFunction(val);
+
+							// Bug: Vec4<T> *operator,  color = color + (1.0f - color.w) * sampledColorAndOpacity;
+							// color.w = color.w + (1.f - color.w) * sampledColorAndOpacity;
 							tPrev += step;
 						}
-						std::cout<<"RayInterval terminated\n";
 						cellIndex = iter.CellIndex;
 						tPrev = tCur;
 					}
-					std::cout<<"Ray terminated\n";
 				}
 			}
 			window.EndCopyImageToScreen();
