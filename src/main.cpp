@@ -134,6 +134,10 @@ vector<Ref<Block3DCache>> SetupVolumeData(
 
 int main( int argc, char **argv )
 {
+	std::cout<<"Cmd:\n";
+	for(int i = 1;i<argc;i++){
+		std::cout<<argv[i]<<std::endl;
+	}
 	cmdline::parser a;
 	a.add<int>( "width", 'w', "Width of window", false, 1024 );
 	a.add<int>( "height", 'h', "Height of window", false, 768 );
@@ -399,7 +403,7 @@ int main( int argc, char **argv )
 		}
 	};
 
-	auto SampleFromTransferFunction = [ & ]( char v ) -> Vec4f {
+	auto SampleFromTransferFunction = [ & ]( unsigned char v ) -> Vec4f {
 		auto r = transferFunction[v*4];
 		auto g = transferFunction[v*4+1];
 		auto b = transferFunction[v*4+2];
@@ -407,12 +411,9 @@ int main( int argc, char **argv )
 		return Vec4f{r,g,b,a};
 	};
 
-	auto Sampler = [&](const char * data, const Point3f & sp)->char{
-		assert(sp.x >=0);
-		assert(sp.y >=0);
-		assert(sp.z >=0);
-		auto SampleI = [&](const char * data, const Point3i & ip)->char{
-			if(ip.x >=blockSize.x || ip.y>=blockSize.y || ip.z >= blockSize.z){ // boundary: a bad perfermance workaround
+	auto Sampler = [&](const unsigned char * data, const Point3f & sp)->unsigned char{
+		auto SampleI = [&](const unsigned char * data, const Point3i & ip)->unsigned char{
+			if(ip.x >=blockSize.x || ip.y>=blockSize.y || ip.z >= blockSize.z){  // boundary: a bad perfermance workaround
 				return 0.f;
 			}
 			return *(data + Linear(ip,{blockSize.x,blockSize.y}));
@@ -428,11 +429,11 @@ int main( int argc, char **argv )
 		return Lerp( d.z, d0, d1 );
 	};
 
-	auto SampleFromVolume = [ & ]( const Point3i &cellIndex, const Point3f &globalSamplePos ) -> char {
+	auto SampleFromVolume = [ & ]( const Point3i &cellIndex, const Point3f &globalSamplePos ) -> unsigned char {
 		constexpr int padding = 0;  // reserved for future use
-		auto innerOffset = globalSamplePos - Vec3f(cellIndex.ToVector3()) * Vec3f(blockSize);
+		auto innerOffset = (globalSamplePos.ToVector3() - Vec3f(cellIndex.ToVector3() * blockSize)).ToPoint3();
 		auto blockData = volumeData[0]->GetPage({cellIndex.x,cellIndex.y,cellIndex.z});
-		return Sampler((const char*)blockData,innerOffset);
+		return Sampler((const unsigned char*)blockData,innerOffset);
 	};
 
 	auto CPURenderLoop = [ & ]( void *buffer, int width, int height, const auto &grid ) {
@@ -447,9 +448,8 @@ int main( int argc, char **argv )
 				cauto dir = pWorld - eye;
 				r = Ray( dir, eye );
 				auto iter = grid.IntersectWith( r );
-				float tPrev = iter.Pos, tCur;
+				float tPrev = iter.Pos, tCur,tMax = iter.Max - step;
 				Point3i cellIndex = iter.CellIndex;
-
 				Vec4f color(0,0,0,0);
 				auto pixel = (char *)buffer + y * pitch + 4 * x;
 				if ( iter.Valid() == false ) {
@@ -461,8 +461,8 @@ int main( int argc, char **argv )
 					while ( iter.Valid() && color.w < 0.99 ) {
 						++iter;
 						tCur = iter.Pos;
-						while ( tPrev < tCur ) {
-							auto globalPos = r( tPrev );
+						while ( tPrev < tCur && tPrev < tMax && color.w < 0.99) {
+							auto globalPos = r(tPrev);
 							auto val = SampleFromVolume( cellIndex, globalPos );
 							Vec4f sampledColorAndOpacity = SampleFromTransferFunction( val );
 							color = color + sampledColorAndOpacity * Vec4f( Vec3f(sampledColorAndOpacity), 1.0 ) * ( 1.0 - color.w );
@@ -471,10 +471,15 @@ int main( int argc, char **argv )
 						cellIndex = iter.CellIndex;
 						tPrev = tCur;
 					}
+					color.x = Clamp(color.x,0.0,1.0);
+					color.y = Clamp(color.y,0.0,1.0);
+					color.z = Clamp(color.z,0.0,1.0);
+					color.w = Clamp(color.w,0.0,1.0);
 					pixel[ 0 ] = color.x * 255;
 					pixel[ 1 ] = color.y * 255;
 					pixel[ 2 ] = color.z * 255;
 					pixel[ 3 ] = color.w * 255;
+					//std::cout<<(int)pixel[0]<<" "<<(int)pixel[1]<<" "<<(int)pixel[2]<<" "<<(int)pixel[3]<<std::endl;
 				}
 				rayCount++;
 				if ( rayCount % ( ( width * height ) / 100 ) == 0 ) {
