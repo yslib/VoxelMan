@@ -21,7 +21,7 @@
 #include <VMGraphics/interpulator.h>
 
 #include <GLImpl.hpp>
-#include <jsondef.hpp>
+#include <voxelman.hpp>
 using namespace vm;
 using namespace std;
 

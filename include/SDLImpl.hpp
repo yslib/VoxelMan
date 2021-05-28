@@ -51,7 +51,7 @@ class SDL2Impl:public EventListenerTraits{
         renderer.reset(pRenderer);
 
         SDL_Texture * screen_texture = SDL_CreateTexture(renderer.get(),
-        SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING,
+        SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
         ScreenWidth, ScreenHeight);
 
         if(screen_texture == nullptr){

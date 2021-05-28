@@ -18,7 +18,6 @@
 #include <VMCoreExtension/i3dblockfileplugininterface.h>
 #include <VMGraphics/camera.h>
 #include <VMGraphics/interpulator.h>
-#include <jsondef.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <3rdparty/stb_image.h>
@@ -26,6 +25,8 @@
 #include <3rdparty/stb_image_write.h>
 
 #include <SDLImpl.hpp>
+
+#include <voxelman.h>
 using namespace vm;
 using namespace std;
 
@@ -135,10 +136,6 @@ vector<Ref<Block3DCache>> SetupVolumeData(
 
 int main( int argc, char **argv )
 {
-	std::cout<<"Cmd:\n";
-	for(int i = 1;i<argc;i++){
-		std::cout<<argv[i]<<std::endl;
-	}
 	cmdline::parser a;
 	a.add<int>( "width", 'w', "Width of window", false, 1024 );
 	a.add<int>( "height", 'h', "Height of window", false, 768 );
@@ -148,7 +145,7 @@ int main( int argc, char **argv )
 	a.add<string>( "cam", '\0', "Specifies camera json file", false );
 	a.add<string>( "tf", '\0', "Specifies transfer function text file", false );
 	a.add<string>( "pd", '\0', "Specifies plugin load directoy", false, "plugins" );
-	a.add<string>( "nw", 'n', "Launches without window, just render one frame and output", false);
+	a.add<string>( "nw", 'n', "Launches without window, just render one frame and output", false );
 	a.parse_check( argc, argv );
 
 	Vec2i windowSize;
@@ -238,7 +235,7 @@ int main( int argc, char **argv )
 			dataBound = Bound3i( minP, maxP );
 			dataResolution = Vec3i( dataSize );
 			gridCount = Vec3i( volume->BlockDim() );
-			blockSize = Vec3i(volume->BlockSize());
+			blockSize = Vec3i( volume->BlockSize() );
 			PrintVolumeDataInfo();
 		}
 	};
@@ -254,7 +251,7 @@ int main( int argc, char **argv )
 			dataBound = Bound3i( minP, maxP );
 			dataResolution = Vec3i( dataSize );
 			gridCount = Vec3i( volume->BlockDim() );
-			blockSize = Vec3i(volume->BlockSize());
+			blockSize = Vec3i( volume->BlockSize() );
 			PrintVolumeDataInfo();
 		}
 	};
@@ -405,87 +402,76 @@ int main( int argc, char **argv )
 	};
 
 	auto SampleFromTransferFunction = [ & ]( unsigned char v ) -> Vec4f {
-		auto r = transferFunction[v*4];
-		auto g = transferFunction[v*4+1];
-		auto b = transferFunction[v*4+2];
-		auto a = transferFunction[v*4+3];
-		return Vec4f{r,g,b,a};
+		auto r = transferFunction[ v * 4 ];
+		auto g = transferFunction[ v * 4 + 1 ];
+		auto b = transferFunction[ v * 4 + 2 ];
+		auto a = transferFunction[ v * 4 + 3 ];
+		return Vec4f{ r, g, b, a };
 	};
 
-	auto Sampler = [&](const unsigned char * data, const Point3f & sp)->unsigned char{
-		auto SampleI = [&](const unsigned char * data, const Point3i & ip)->unsigned char{
-			if(ip.x >=blockSize.x || ip.y>=blockSize.y || ip.z >= blockSize.z){  // boundary: a bad perfermance workaround
+	auto Sampler = [ & ]( const unsigned char *data, const Point3f &sp ) -> unsigned char {
+		auto SampleI = [ & ]( const unsigned char *data, const Point3i &ip ) -> unsigned char {
+			if ( ip.x >= blockSize.x || ip.y >= blockSize.y || ip.z >= blockSize.z ) {	// boundary: a bad perfermance workaround
 				return 0.f;
 			}
-			return *(data + Linear(ip,{blockSize.x,blockSize.y}));
+			return *( data + Linear( ip, { blockSize.x, blockSize.y } ) );
 		};
 		const auto pi = Point3i( std::floor( sp.x ), std::floor( sp.y ), std::floor( sp.z ) );
 		const auto d = sp - static_cast<Point3f>( pi );
-		const auto d00 = Lerp( d.x, SampleI(data,  pi ), SampleI(data, pi + Vector3i( 1, 0, 0 ) ) );
-		const auto d10 = Lerp( d.x, SampleI(data,  pi + Vector3i( 0, 1, 0 ) ), SampleI(data,  pi + Vector3i( 1, 1, 0 ) ) );
-		const auto d01 = Lerp( d.x, SampleI(data,  pi + Vector3i( 0, 0, 1 ) ), SampleI(data,  pi + Vector3i( 1, 0, 1 ) ) );
-		const auto d11 = Lerp( d.x, SampleI(data,  pi + Vector3i( 0, 1, 1 ) ), SampleI(data,  pi + Vector3i( 1, 1, 1 ) ) );
+		const auto d00 = Lerp( d.x, SampleI( data, pi ), SampleI( data, pi + Vector3i( 1, 0, 0 ) ) );
+		const auto d10 = Lerp( d.x, SampleI( data, pi + Vector3i( 0, 1, 0 ) ), SampleI( data, pi + Vector3i( 1, 1, 0 ) ) );
+		const auto d01 = Lerp( d.x, SampleI( data, pi + Vector3i( 0, 0, 1 ) ), SampleI( data, pi + Vector3i( 1, 0, 1 ) ) );
+		const auto d11 = Lerp( d.x, SampleI( data, pi + Vector3i( 0, 1, 1 ) ), SampleI( data, pi + Vector3i( 1, 1, 1 ) ) );
 		const auto d0 = Lerp( d.y, d00, d10 );
 		const auto d1 = Lerp( d.y, d01, d11 );
 		return Lerp( d.z, d0, d1 );
 	};
 
 	auto SampleFromVolume = [ & ]( const Point3i &cellIndex, const Point3f &globalSamplePos ) -> unsigned char {
-		constexpr int padding = 0;  // reserved for future use
-		auto innerOffset = (globalSamplePos.ToVector3() - Vec3f(cellIndex.ToVector3() * blockSize)).ToPoint3();
-		auto blockData = volumeData[0]->GetPage({cellIndex.x,cellIndex.y,cellIndex.z});
-		return Sampler((const unsigned char*)blockData,innerOffset);
+		constexpr int padding = 0;	// reserved for future use
+		auto innerOffset = ( globalSamplePos.ToVector3() - Vec3f( cellIndex.ToVector3() * blockSize ) ).ToPoint3();
+		auto blockData = volumeData[ 0 ]->GetPage( { cellIndex.x, cellIndex.y, cellIndex.z } );
+		return Sampler( (const unsigned char *)blockData, innerOffset );
 	};
 
-	auto CPURenderLoop = [ & ]( void *buffer, int width, int height, const auto &grid ) {
-		Ray r;
-		Float t;
+	auto Raycast = [ & ]( const Ray &ray, RayIntervalIter &intervalIter ) -> Vec4f {
+		float tPrev = intervalIter.Pos, tCur, tMax = intervalIter.Max - step;
+		Point3i cellIndex = intervalIter.CellIndex;
+		Vec4f color( 0, 0, 0, 0 );
+		while (intervalIter.Valid() && color.w < 0.99 ) {
+			++intervalIter;
+			tCur = intervalIter.Pos;
+			while ( tPrev < tCur && tPrev < tMax && color.w < 0.99 ) {
+				auto globalPos = ray( tPrev );
+				auto val = SampleFromVolume( cellIndex, globalPos );
+				auto sampledColorAndOpacity = SampleFromTransferFunction( val );
+				color = color + sampledColorAndOpacity * Vec4f( Vec3f( sampledColorAndOpacity ), 1.0 ) * ( 1.0 - color.w );
+				tPrev += step;
+			}
+			cellIndex = intervalIter.CellIndex;
+			tPrev = tCur;
+		}
+		return color;
+	};
+
+	auto CPURenderLoop = [ & ]( Pixel_t *buffer, int width, int height, const auto &grid ) {
 		int rayCount = 0;
-		int pitch = width * 4;
 		for ( int y = 0; y < height; y++ ) {
 			for ( int x = 0; x < width; x++ ) {
 				cauto pScreen = Point3f{ x, y, 0 };
 				cauto pWorld = screenToWorld * pScreen;
 				cauto dir = pWorld - eye;
-				r = Ray( dir, eye );
+				auto r = Ray( dir, eye );
 				auto iter = grid.IntersectWith( r );
-				float tPrev = iter.Pos, tCur,tMax = iter.Max - step;
-				Point3i cellIndex = iter.CellIndex;
-				Vec4f color(0,0,0,0);
-				auto pixel = (char *)buffer + y * pitch + 4 * x;
-				if ( iter.Valid() == false ) {
-					pixel[ 3 ] = color.x * 255;
-					pixel[ 2 ] = color.y * 255;
-					pixel[ 1 ] = color.z * 255;
-					pixel[ 0 ] = color.w * 255;
-				} else {
-					while ( iter.Valid() && color.w < 0.99 ) {
-						++iter;
-						tCur = iter.Pos;
-						while ( tPrev < tCur && tPrev < tMax && color.w < 0.99) {
-							auto globalPos = r(tPrev);
-							auto val = SampleFromVolume( cellIndex, globalPos );
-							Vec4f sampledColorAndOpacity = SampleFromTransferFunction( val );
-							color = color + sampledColorAndOpacity * Vec4f( Vec3f(sampledColorAndOpacity), 1.0 ) * ( 1.0 - color.w );
-							tPrev += step;
-						}
-						cellIndex = iter.CellIndex;
-						tPrev = tCur;
-					}
-					color.x = Clamp(color.x,0.0,1.0);
-					color.y = Clamp(color.y,0.0,1.0);
-					color.z = Clamp(color.z,0.0,1.0);
-					color.w = Clamp(color.w,0.0,1.0);
-					pixel[ 3 ] = color.x * 255;
-					pixel[ 2 ] = color.y * 255;
-					pixel[ 1 ] = color.z * 255;
-					pixel[ 0 ] = color.w * 255;
-					//std::cout<<(int)pixel[0]<<" "<<(int)pixel[1]<<" "<<(int)pixel[2]<<" "<<(int)pixel[3]<<std::endl;
-				}
+				auto color = Raycast(r, iter );
+				auto pixel = buffer + y * width + x;
+				pixel->Comp.r = color.x * 255;
+				pixel->Comp.g = color.y * 255;
+				pixel->Comp.b = color.z * 255;
+				pixel->Comp.a = color.w * 255;
 				rayCount++;
 				if ( rayCount % ( ( width * height ) / 100 ) == 0 ) {
 					renderProgress = rayCount * 1.0 / ( width * height );
-					//std::cout << "Render Progress: [" << renderProgress * 100 << "%]\n";
 				}
 			}
 		}
@@ -498,27 +484,26 @@ int main( int argc, char **argv )
 		if ( !hasWindow && window.HasWindow() ) {
 			while ( window.Wait() == true ) {
 				window.DispatchEvent();
-				if(window.Quit){
+				if ( window.Quit ) {
 					break;
 				}
-				char *pixels;
+				Pixel_t *pixels;
 				uint32_t w, h;
 				int pitch;
 				window.BeginCopyImageToScreen( (void **)&pixels, w, h, pitch );
-
 				auto start = timer.elapsed();
-				CPURenderLoop( pixels, w, h, grid );
+				CPURenderLoop(pixels, w, h, grid );
 				auto end = timer.elapsed();
 				auto sec = end.s() - start.s();
-				auto fps = "VoxelMan: "+std::to_string(1.0/sec)+" fps";
+				auto fps = "VoxelMan: " + std::to_string( 1.0 / sec ) + " fps";
 				window.EndCopyImageToScreen();
-				window.SetWindowTitle(fps.c_str());
+				window.SetWindowTitle( fps.c_str() );
 				window.Present();
 			}
 		} else {
 			LOG_INFO << "Offscreen rendering... \n";
-			auto bytes = screenSize.Prod() * 4;
-			std::unique_ptr<char[]> image( new char[ bytes ] );
+			auto bytes = screenSize.Prod();
+			std::unique_ptr<Pixel_t> image( new Pixel_t[ bytes ] );
 			CPURenderLoop( image.get(), screenSize.x, screenSize.y, grid );
 			LOG_INFO << "Rendering finished, writing image ...";
 			stbi_write_png( "render_result.png", screenSize.x, screenSize.y, 4, image.get(), screenSize.x * 4 );
