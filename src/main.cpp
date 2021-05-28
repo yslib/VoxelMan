@@ -388,7 +388,7 @@ int main( int argc, char **argv )
 			if ( ip.x >= blockSize.x || ip.y >= blockSize.y || ip.z >= blockSize.z ) {	// boundary: a bad perfermance workaround
 				return 0.f;
 			}
-			return *( data + Linear( ip, { blockSize.x, blockSize.y } ) );
+			return *( data + Linear( ip, Size2( blockSize.x, blockSize.y ) ) );
 		};
 		const auto pi = Point3i( std::floor( sp.x ), std::floor( sp.y ), std::floor( sp.z ) );
 		const auto d = sp - static_cast<Point3f>( pi );
