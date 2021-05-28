@@ -1,6 +1,7 @@
 #pragma once
 #include <VMUtils/json_binding.hpp>
 #include <VMat/geometry.h>
+#include <VMUtils/cmdline.hpp>
 #include <vector>
 #include <string>
 
@@ -20,17 +21,16 @@ union Pixel_t
 
 struct App
 {
-	Vec2i windowSize;
-	Vec2i filmSize;
-
-	std::string dataFileName;
-	std::string camFileName;
-	std::string tfFileName;
-	std::string pluginDir;
-	std::string tfPresetDir;
+	cmdline::parser cmd;
+	Vec2i WindowSize;
+	Vec2i FilmSize;
+	std::string DataFileName;
+	std::string CameraFileName;
+	std::string TFFileName;
+	std::string PluginDir;
+	std::string TFPresetDir;
 
 	bool hasWindow;
-
 	Transform ModelTransform;
 	Transform lookAt, inverseLookAt, persp, invPersp, screenToWorld;
 
@@ -40,9 +40,11 @@ struct App
 
 	ViewingTransform camera;
 	bool RenderPause = true;
+
 	bool FPSCamera = true;
+
 	float fov = 60.f;
-	Size2 screenSize;
+	Vec2i screenSize;
 	float aspect;
 	float step = 0.01;
 	float renderProgress = 0.0;
@@ -55,7 +57,10 @@ struct App
 	Vec3i gridCount;
 	int dimension = 256;
 	std::array<float, 256 * 4> transferFunction;
+
+	Timer Time;
 };
+
 };	// namespace vm
 
 struct LVDJSONStruct : vm::json::Serializable<LVDJSONStruct>
@@ -64,8 +69,3 @@ struct LVDJSONStruct : vm::json::Serializable<LVDJSONStruct>
 	VM_JSON_FIELD( float, samplingRate );
 	VM_JSON_FIELD( std::vector<float>, spacing );
 };
-
-/**
- * @brief image pixel struct using by software rendering
- * 
- */

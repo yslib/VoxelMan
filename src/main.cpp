@@ -136,68 +136,59 @@ vector<Ref<Block3DCache>> SetupVolumeData(
 
 int main( int argc, char **argv )
 {
-	cmdline::parser a;
-	a.add<int>( "width", 'w', "Width of window", false, 1024 );
-	a.add<int>( "height", 'h', "Height of window", false, 768 );
-	a.add<size_t>( "hmem", '\0', "Specifices available host memory in MB", false, 8000 );
-	a.add<size_t>( "dmem", '\0', "Specifices available device memory in MB", false, 50 );
-	a.add<string>( "file", 'f', "Specifies data file", false );
-	a.add<string>( "cam", '\0', "Specifies camera json file", false );
-	a.add<string>( "tf", '\0', "Specifies transfer function text file", false );
-	a.add<string>( "pd", '\0', "Specifies plugin load directoy", false, "plugins" );
-	a.add<string>( "nw", 'n', "Launches without window, just render one frame and output", false );
-	a.parse_check( argc, argv );
+	Logger::EnableRawLog(true);
+	auto LogHandler = [](LogLevel level, const LogContext* ctx, const char* log){
+		static std::string voxelman = "[VoxelMan]: ";
+		auto output = voxelman + std::string(log);
+		std::cout<<output<<std::endl;
+	};
+	Logger::InstallLogMsgHandler(LogHandler);
 
-	Vec2i windowSize;
-	windowSize.x = a.get<int>( "width" );
-	windowSize.y = a.get<int>( "height" );
-	auto dataFileName = a.get<string>( "file" );
-	auto camFileName = a.get<string>( "cam" );
-	auto tfFileName = a.get<string>( "tf" );
-	auto pluginDir = a.get<string>( "pd" );
-	auto hasWindow = a.exist( "nw" );
-
-	LOG_INFO << "Load plugins from " << pluginDir;
-	vm::PluginLoader::LoadPlugins( pluginDir );	 // load plugins from the directory
-	LOG_INFO << "Init SDL2\n";
+	auto app = std::make_shared<App>();
 	SDL2Impl window;
 
-	// Transformations
+	auto InitCmd = [ app = app ]( int argc, char **argv ) {
+		app->cmd.add<int>( "width", 'w', "Width of window", false, 1024 );
+		app->cmd.add<int>( "height", 'h', "Height of window", false, 768 );
+		app->cmd.add<size_t>( "hmem", '\0', "Specifices available host memory in MB", false, 8000 );
+		app->cmd.add<size_t>( "dmem", '\0', "Specifices available device memory in MB", false, 50 );
+		app->cmd.add<string>( "file", 'f', "Specifies data file", false );
+		app->cmd.add<string>( "cam", '\0', "Specifies camera json file", false );
+		app->cmd.add<string>( "tf", '\0', "Specifies transfer function text file", false );
+		app->cmd.add<string>( "pd", '\0', "Specifies plugin load directoy", false, "plugins" );
+		app->cmd.add<string>( "nw", 'n', "Launches without window, just render one frame and output", false );
+		app->cmd.parse_check( argc, argv );
 
-	Transform ModelTransform; /*Model Matrix*/
-	ModelTransform.SetIdentity();
+		app->WindowSize.x = app->cmd.get<int>( "width" );
+		app->WindowSize.y = app->cmd.get<int>( "height" );
+		app->DataFileName = app->cmd.get<string>( "file" );
+		app->CameraFileName = app->cmd.get<string>( "cam" );
+		app->TFFileName = app->cmd.get<string>( "tf" );
+		app->PluginDir = app->cmd.get<string>( "pd" );
+		app->hasWindow = app->cmd.exist( "nw" );
 
-	const Point3f eye{ 500, 500, 500 };
-	const Point3f center{ 0, 0, 0 };
-	const Vec3f up{ 0, 1, 0 };
+		LOG_INFO << "Load plugins from " << app->PluginDir;
+		vm::PluginLoader::LoadPlugins( app->PluginDir );  // load plugins from the directory
+		LOG_INFO << "Init SDL2\n";
 
-	ViewingTransform camera( eye, up, center );
+		app->ModelTransform.SetIdentity();
 
-	if ( camFileName.empty() == false ) {
-		try {
-			camera = ConfigCamera( camFileName );
-		} catch ( exception &e ) {
-			LOG_CRITICAL << "Can not open camera file " << e.what();
-		}
-	}
+		app->eye = Point3f{ 500, 500, 500 };
+		app->center = Point3f{ 0, 0, 0 };
+		app->up = Vec3f{ 0, 1, 0 };
+		app->camera = ViewingTransform( app->eye, app->up, app->center );
 
-	bool RenderPause = true;
-	bool FPSCamera = true;
-	auto fov = 60.f;
-	const Size2 screenSize{ window.ScreenWidth, window.ScreenHeight };
-	auto aspect = 1.0 * screenSize.x / screenSize.y;
-	const Vec2i filmSize{ screenSize.x, screenSize.y };
-	Transform lookAt, inverseLookAt, persp, invPersp, screenToWorld;
-	float step = 0.01;
-	float renderProgress = 0.0;
-	// Volume data
-	vector<Ref<Block3DCache>> volumeData;
-	Vec3i dataResolution;
-	Bound3i dataBound;
-	Vec3i blockSize;
-	Vec3i gridCount;
-	auto dimension = 256;
-	std::array<float, 256 * 4> transferFunction;
+		app->RenderPause = true;
+		app->FPSCamera = true;
+		app->fov = 60.f;
+		app->screenSize = app->WindowSize;
+		app->aspect = 1.0 * app->screenSize.x / app->screenSize.y;
+		app->FilmSize = app->screenSize;
+		app->step = 0.01;
+		app->renderProgress = 0.0;
+
+		Transform lookAt, inverseLookAt, persp, invPersp, screenToWorld;
+	};
 
 	auto PrintCamera = [ & ]( const ViewingTransform &camera ) {
 		println( "Position:\t{}\t", camera.GetViewMatrixWrapper().GetPosition() );
@@ -207,52 +198,46 @@ int main( int argc, char **argv )
 		println( "ViewMatrix:\t{}\t", camera.GetViewMatrixWrapper().LookAt() );
 	};
 
-	auto PrintVolumeDataInfo = [ & ]() {
-		std::cout << "[" << dataBound.min << ", " << dataBound.max << "] " << dataResolution << " grid: " << gridCount << std::endl;
-	};
-
 	auto UpdateTransform = [ & ]() {
-		lookAt = camera.GetViewMatrixWrapper().LookAt();
-		inverseLookAt = lookAt.Inversed();
-		persp = Perspective( fov, aspect, 0.01, 1000 );
-		invPersp = persp.Inversed();
+		app->lookAt = app->camera.GetViewMatrixWrapper().LookAt();
+		app->inverseLookAt = app->lookAt.Inversed();
+		app->persp = Perspective( app->fov, app->aspect, 0.01, 1000 );
+		app->invPersp = app->persp.Inversed();
 
 		auto screenToPerps =
 		  Translate( -1, 1, 0 ) * Scale( 2, -2, 1 ) *
-		  Scale( 1.0 / screenSize.x, 1.0 / screenSize.y, 1.0 );
+		  Scale( 1.0 / app->screenSize.x, 1.0 / app->screenSize.y, 1.0 );
 
-		screenToWorld = inverseLookAt * invPersp * screenToPerps;
+		app->screenToWorld = app->inverseLookAt * app->invPersp * screenToPerps;
 	};
 
 	auto OpenVolumeDataFromFile = [ & ]( const std::string &fileName ) {
-		volumeData = SetupVolumeData( fileName, *PluginLoader::GetPluginLoader(), 2000, false, nullptr );
+		app->volumeData = SetupVolumeData( fileName, *PluginLoader::GetPluginLoader(), 2000, false, nullptr );
 		// update Bound
-		if ( volumeData.empty() == false ) {
+		if ( app->volumeData.empty() == false ) {
 			Point3i minP{ 0, 0, 0 };
-			auto &volume = volumeData[ 0 ];
+			auto &volume = app->volumeData[ 0 ];
 			auto dataSize = volume->DataSizeWithoutPadding();
 			Point3i maxP{ Point3i( dataSize.ToPoint3() ) };
-			dataBound = Bound3i( minP, maxP );
-			dataResolution = Vec3i( dataSize );
-			gridCount = Vec3i( volume->BlockDim() );
-			blockSize = Vec3i( volume->BlockSize() );
-			PrintVolumeDataInfo();
+			app->dataBound = Bound3i( minP, maxP );
+			app->dataResolution = Vec3i( dataSize );
+			app->gridCount = Vec3i( volume->BlockDim() );
+			app->blockSize = Vec3i( volume->BlockSize() );
 		}
 	};
 
 	auto CreateVolumeDataIntoFile = [ & ]( const Block3DDataFileDesc &desc ) {
-		volumeData = SetupVolumeData( "", *PluginLoader::GetPluginLoader(), 2000, true, &desc );
+		app->volumeData = SetupVolumeData( "", *PluginLoader::GetPluginLoader(), 2000, true, &desc );
 		// update Bound
-		if ( volumeData.empty() == false ) {
+		if ( app->volumeData.empty() == false ) {
 			Point3i minP{ 0, 0, 0 };
-			auto &volume = volumeData[ 0 ];
+			auto &volume = app->volumeData[ 0 ];
 			auto dataSize = volume->DataSizeWithoutPadding();
 			Point3i maxP{ Point3i( dataSize.ToPoint3() ) };
-			dataBound = Bound3i( minP, maxP );
-			dataResolution = Vec3i( dataSize );
-			gridCount = Vec3i( volume->BlockDim() );
-			blockSize = Vec3i( volume->BlockSize() );
-			PrintVolumeDataInfo();
+			app->dataBound = Bound3i( minP, maxP );
+			app->dataResolution = Vec3i( dataSize );
+			app->gridCount = Vec3i( volume->BlockDim() );
+			app->blockSize = Vec3i( volume->BlockSize() );
 		}
 	};
 
@@ -260,21 +245,17 @@ int main( int argc, char **argv )
 		assert( dimension == 256 );
 		if ( fileName.empty() ) {
 			// set default linear tf
-			if ( dimension == 1 ) {
-				transferFunction[ 0 ] = transferFunction[ 1 ] = transferFunction[ 2 ] = transferFunction[ 3 ] = 1.0;
-			} else {
-				const double slope = 1.0 / ( dimension - 1 );
-				for ( int i = 0; i < dimension; i++ ) {
-					transferFunction[ 4 * i ] =
-					  transferFunction[ 4 * i + 1 ] =
-						transferFunction[ 4 * i + 2 ] =
-						  transferFunction[ 4 * i + 3 ] = slope * i;
-				}
+			const double slope = 1.0 / ( dimension - 1 );
+			for ( int i = 0; i < dimension; i++ ) {
+				app->transferFunction[ 4 * i ] =
+				  app->transferFunction[ 4 * i + 1 ] =
+					app->transferFunction[ 4 * i + 2 ] =
+					  app->transferFunction[ 4 * i + 3 ] = slope * i;
 			}
 		} else {
 			ColorInterpulator a( fileName );
 			if ( a.valid() ) {
-				a.FetchData( transferFunction.data(), dimension );
+				a.FetchData( app->transferFunction.data(), dimension );
 			}
 		}
 	};
@@ -291,8 +272,8 @@ int main( int argc, char **argv )
 
 			if ( dx == 0.0 && dy == 0.0 )
 				return;
-
-			if ( FPSCamera == false ) {
+			auto &camera = app->camera;
+			if ( app->FPSCamera == false ) {
 				if ( ( buttons & Mouse_Left ) && ( buttons & Mouse_Right ) ) {
 					const auto directionEx = camera.GetViewMatrixWrapper().GetUp() * dy + dx * camera.GetViewMatrixWrapper().GetRight();
 					camera.GetViewMatrixWrapper().Move( directionEx, 0.002 );
@@ -322,6 +303,8 @@ int main( int argc, char **argv )
 
 	auto KeyboardEventHandler = [ & ]( void *, KeyButton key, EventAction action ) {
 		float sensity = 0.1;
+		auto &camera = app->camera;
+		auto &dataResolution = app->dataResolution;
 		if ( action == Press ) {
 			if ( key == KeyButton::Key_C ) {
 				SaveCameraAsJson( camera, "vmCamera.cam" );
@@ -334,8 +317,8 @@ int main( int argc, char **argv )
 				camera.GetViewMatrixWrapper().SetPosition( Point3f( u( e ) % dataResolution.x, u( e ) % dataResolution.y, u( e ) & dataResolution.z ) );
 				LOG_INFO << "A random camera position generated";
 			} else if ( key == KeyButton::Key_F ) {
-				FPSCamera = !FPSCamera;
-				if ( FPSCamera ) {
+				app->FPSCamera = !app->FPSCamera;
+				if ( app->FPSCamera ) {
 					LOG_INFO << "Switch to FPS camera manipulation";
 				} else {
 					LOG_INFO << "Switch to track ball manipulation";
@@ -346,7 +329,7 @@ int main( int argc, char **argv )
 				LOG_CRITICAL << "This feature is not implemented yet.";
 			}
 		} else if ( action == Repeat ) {
-			if ( FPSCamera ) {
+			if ( app->FPSCamera ) {
 				bool change = false;
 				if ( key == KeyButton::Key_W ) {
 					auto dir = camera.GetViewMatrixWrapper().GetFront();
@@ -379,11 +362,11 @@ int main( int argc, char **argv )
 			const auto extension = each.substr( each.find_last_of( '.' ) );
 			bool found = false;
 			if ( extension == ".tf" ) {
-				UpdateTransferFunction( each, dimension );
+				UpdateTransferFunction( each, app->dimension );
 				found = true;
 			} else if ( extension == ".cam" ) {
 				try {
-					camera = ConfigCamera( each );
+					app->camera = ConfigCamera( each );
 				} catch ( std::exception &e ) {
 					LOG_CRITICAL << "Can not open .cam file: " << e.what();
 				}
@@ -391,8 +374,8 @@ int main( int argc, char **argv )
 			} else {
 				// Maybe data file
 				OpenVolumeDataFromFile( each );
-				if ( volumeData.size() != 0 ) {
-					RenderPause = false;
+				if ( app->volumeData.size() != 0 ) {
+					app->RenderPause = false;
 				}
 				found = true;
 			}
@@ -402,15 +385,14 @@ int main( int argc, char **argv )
 	};
 
 	auto SampleFromTransferFunction = [ & ]( unsigned char v ) -> Vec4f {
-		auto r = transferFunction[ v * 4 ];
-		auto g = transferFunction[ v * 4 + 1 ];
-		auto b = transferFunction[ v * 4 + 2 ];
-		auto a = transferFunction[ v * 4 + 3 ];
-		return Vec4f{ r, g, b, a };
+		Vec4f color;
+		memcpy(color.Data(),&app->transferFunction[4*v], 16);
+		return color;
 	};
 
-	auto Sampler = [ & ]( const unsigned char *data, const Point3f &sp ) -> unsigned char {
+	auto TrilinearSampler = [ & ]( const unsigned char *data, const Point3f &sp ) -> unsigned char {
 		auto SampleI = [ & ]( const unsigned char *data, const Point3i &ip ) -> unsigned char {
+			auto &blockSize = app->blockSize;
 			if ( ip.x >= blockSize.x || ip.y >= blockSize.y || ip.z >= blockSize.z ) {	// boundary: a bad perfermance workaround
 				return 0.f;
 			}
@@ -428,17 +410,23 @@ int main( int argc, char **argv )
 	};
 
 	auto SampleFromVolume = [ & ]( const Point3i &cellIndex, const Point3f &globalSamplePos ) -> unsigned char {
+		auto &blockSize = app->blockSize;
+
 		constexpr int padding = 0;	// reserved for future use
+		(void)padding;
+
 		auto innerOffset = ( globalSamplePos.ToVector3() - Vec3f( cellIndex.ToVector3() * blockSize ) ).ToPoint3();
-		auto blockData = volumeData[ 0 ]->GetPage( { cellIndex.x, cellIndex.y, cellIndex.z } );
-		return Sampler( (const unsigned char *)blockData, innerOffset );
+		auto blockData = app->volumeData[ 0 ]->GetPage( { cellIndex.x, cellIndex.y, cellIndex.z } );
+		return TrilinearSampler( (const unsigned char *)blockData, innerOffset );
 	};
 
 	auto Raycast = [ & ]( const Ray &ray, RayIntervalIter &intervalIter ) -> Vec4f {
+		cauto &step = app->step;
+
 		float tPrev = intervalIter.Pos, tCur, tMax = intervalIter.Max - step;
 		Point3i cellIndex = intervalIter.CellIndex;
 		Vec4f color( 0, 0, 0, 0 );
-		while (intervalIter.Valid() && color.w < 0.99 ) {
+		while ( intervalIter.Valid() && color.w < 0.99 ) {
 			++intervalIter;
 			tCur = intervalIter.Pos;
 			while ( tPrev < tCur && tPrev < tMax && color.w < 0.99 ) {
@@ -458,12 +446,12 @@ int main( int argc, char **argv )
 		int rayCount = 0;
 		for ( int y = 0; y < height; y++ ) {
 			for ( int x = 0; x < width; x++ ) {
-				cauto pScreen = Point3f{ x, y, 0 };
-				cauto pWorld = screenToWorld * pScreen;
-				cauto dir = pWorld - eye;
-				auto r = Ray( dir, eye );
+				cauto pScreen = Point3f(x, y, 0);
+				cauto pWorld = app->screenToWorld * pScreen;
+				cauto dir = pWorld - app->eye;
+				auto r = Ray( dir, app->eye );
 				auto iter = grid.IntersectWith( r );
-				auto color = Raycast(r, iter );
+				auto color = Raycast( r, iter );
 				auto pixel = buffer + y * width + x;
 				pixel->Comp.r = color.x * 255;
 				pixel->Comp.g = color.y * 255;
@@ -471,17 +459,17 @@ int main( int argc, char **argv )
 				pixel->Comp.a = color.w * 255;
 				rayCount++;
 				if ( rayCount % ( ( width * height ) / 100 ) == 0 ) {
-					renderProgress = rayCount * 1.0 / ( width * height );
+					app->renderProgress = rayCount * 1.0 / ( width * height );
 				}
 			}
 		}
 	};
 
-	auto AppLoop = [ & ]() {
-		Timer timer;
-		timer.start();
-		auto grid = dataBound.GenGrid( gridCount );
-		if ( !hasWindow && window.HasWindow() ) {
+	auto AppLoop = [ & ]()->int {
+		app->Time.start();
+		auto &dataBound = app->dataBound;
+		auto grid = dataBound.GenGrid( app->gridCount );
+		if ( !app->hasWindow && window.HasWindow() ) {
 			while ( window.Wait() == true ) {
 				window.DispatchEvent();
 				if ( window.Quit ) {
@@ -491,9 +479,9 @@ int main( int argc, char **argv )
 				uint32_t w, h;
 				int pitch;
 				window.BeginCopyImageToScreen( (void **)&pixels, w, h, pitch );
-				auto start = timer.elapsed();
-				CPURenderLoop(pixels, w, h, grid );
-				auto end = timer.elapsed();
+				auto start = app->Time.elapsed();
+				CPURenderLoop( pixels, w, h, grid );
+				auto end = app->Time.elapsed();
 				auto sec = end.s() - start.s();
 				auto fps = "VoxelMan: " + std::to_string( 1.0 / sec ) + " fps";
 				window.EndCopyImageToScreen();
@@ -502,22 +490,25 @@ int main( int argc, char **argv )
 			}
 		} else {
 			LOG_INFO << "Offscreen rendering... \n";
+			cauto &screenSize = app->screenSize;
 			auto bytes = screenSize.Prod();
 			std::unique_ptr<Pixel_t> image( new Pixel_t[ bytes ] );
 			CPURenderLoop( image.get(), screenSize.x, screenSize.y, grid );
 			LOG_INFO << "Rendering finished, writing image ...";
 			stbi_write_png( "render_result.png", screenSize.x, screenSize.y, 4, image.get(), screenSize.x * 4 );
 		}
+		return 0;
 	};
 
 	window.MouseEvent = MouseEventHandler;
 	window.KeyboardEvent = KeyboardEventHandler;
 	window.FileDropEvent = FileDropEventHandler;
 
-	std::invoke( UpdateTransform );								   // Initial transform
-	std::invoke( UpdateTransferFunction, tfFileName, dimension );  // Initial transfer function
-	std::invoke( OpenVolumeDataFromFile, dataFileName );		   // Open data file if any
-	std::invoke( AppLoop );
+	std::invoke( InitCmd, argc, argv );
 
-	return 0;
+	std::invoke( UpdateTransform );											 // Initial transform
+	std::invoke( UpdateTransferFunction, app->TFFileName, app->dimension );	 // Initial transfer function
+	std::invoke( OpenVolumeDataFromFile, app->DataFileName );				 // Open data file if any
+
+	return std::invoke(AppLoop);
 }
