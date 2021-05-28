@@ -4,7 +4,7 @@
 #include <sstream>
 
 #include <lvdfile.h>
-#include <jsondef.hpp>
+#include <voxelman.h>
 #include <VMUtils/vmnew.hpp>
 #include <VMat/numeric.h>
 

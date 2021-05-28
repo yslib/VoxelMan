@@ -33,22 +33,6 @@ using namespace std;
 #define cauto const auto
 namespace
 {
-Bound3f bound( { 0, 0, 0 }, { 1, 1, 1 } );
-Point3f CubeVertices[ 8 ];
-Point3f CubeTexCoords[ 8 ];
-
-unsigned int CubeVertexIndices[] = {
-	0, 2, 1, 1, 2, 3,
-	4, 5, 6, 5, 7, 6,
-	0, 1, 4, 1, 5, 4,
-	2, 6, 3, 3, 6, 7,
-	0, 4, 2, 2, 4, 6,
-	1, 3, 5, 3, 7, 5
-};
-
-}  // namespace
-namespace
-{
 string GetTextFromFile( const string &fileName )
 {
 	ifstream in( fileName, std::ios::in );
@@ -154,7 +138,7 @@ int main( int argc, char **argv )
 		app->cmd.add<size_t>( "dmem", '\0', "Specifices available device memory in MB", false, 50 );
 		app->cmd.add<string>( "file", 'f', "Specifies data file", false );
 		app->cmd.add<string>( "cam", '\0', "Specifies camera json file", false );
-		app->cmd.add<string>( "tf", '\0', "Specifies transfer function text file", false );
+		app->cmd.add<string>( "tf", '\0', "Specifies transfer function name", false );
 		app->cmd.add<string>( "pd", '\0', "Specifies plugin load directoy", false, "plugins" );
 		app->cmd.add<string>( "nw", 'n', "Launches without window, just render one frame and output", false );
 		app->cmd.parse_check( argc, argv );
@@ -187,7 +171,13 @@ int main( int argc, char **argv )
 		app->step = 0.01;
 		app->renderProgress = 0.0;
 
-		Transform lookAt, inverseLookAt, persp, invPersp, screenToWorld;
+		const double slope = 1.0 / ( app->dimension - 1 );
+		for ( int i = 0; i < app->dimension; i++ ) {
+			app->transferFunction[ 4 * i ] =
+				app->transferFunction[ 4 * i + 1 ] =
+					app->transferFunction[ 4 * i + 2 ] =
+						app->transferFunction[ 4 * i + 3 ] = slope * i;
+		}
 	};
 
 	auto PrintCamera = [ & ]( const ViewingTransform &camera ) {
@@ -241,21 +231,23 @@ int main( int argc, char **argv )
 		}
 	};
 
-	auto UpdateTransferFunction = [ & ]( const std::string &fileName, int dimension ) {
+	auto UpdateTransferFunctionFromFile = [ & ]( const std::string &fileName, int dimension ) {
 		assert( dimension == 256 );
-		if ( fileName.empty() ) {
-			// set default linear tf
-			const double slope = 1.0 / ( dimension - 1 );
-			for ( int i = 0; i < dimension; i++ ) {
-				app->transferFunction[ 4 * i ] =
-				  app->transferFunction[ 4 * i + 1 ] =
-					app->transferFunction[ 4 * i + 2 ] =
-					  app->transferFunction[ 4 * i + 3 ] = slope * i;
-			}
-		} else {
+		if ( !fileName.empty() ) {
 			ColorInterpulator a( fileName );
 			if ( a.valid() ) {
 				a.FetchData( app->transferFunction.data(), dimension );
+			}
+		}
+	};
+
+	auto UpdateTransferFunctionByName = [&](const std::string &tfName){
+		auto text = GetPresetTransferFunctionText(tfName);
+		if(!text.empty()){
+			ColorInterpulator a;
+			a.ReadFromText(text);
+			if ( a.valid() ) {
+				a.FetchData( app->transferFunction.data(), 256 );
 			}
 		}
 	};
@@ -362,7 +354,7 @@ int main( int argc, char **argv )
 			const auto extension = each.substr( each.find_last_of( '.' ) );
 			bool found = false;
 			if ( extension == ".tf" ) {
-				UpdateTransferFunction( each, app->dimension );
+				UpdateTransferFunctionFromFile( each, app->dimension );
 				found = true;
 			} else if ( extension == ".cam" ) {
 				try {
@@ -505,9 +497,8 @@ int main( int argc, char **argv )
 	window.FileDropEvent = FileDropEventHandler;
 
 	std::invoke( InitCmd, argc, argv );
-
 	std::invoke( UpdateTransform );											 // Initial transform
-	std::invoke( UpdateTransferFunction, app->TFFileName, app->dimension );	 // Initial transfer function
+	std::invoke( UpdateTransferFunctionByName, app->TFFileName);
 	std::invoke( OpenVolumeDataFromFile, app->DataFileName );				 // Open data file if any
 
 	return std::invoke(AppLoop);

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-project(VolumeVisualizationGL)
+project(VoxelMan)
 
 
 set(CMAKE_SKIP_BUILD_RPATH FALSE)

@@ -1,7 +1,11 @@
 #pragma once
 #include <VMUtils/json_binding.hpp>
 #include <VMat/geometry.h>
+#include <VMat/transformation.h>
 #include <VMUtils/cmdline.hpp>
+#include <VMFoundation/largevolumecache.h>
+#include <VMUtils/timer.hpp>
+#include <VMGraphics/camera.h>
 #include <vector>
 #include <string>
 
@@ -61,6 +65,7 @@ struct App
 	Timer Time;
 };
 
+
 };	// namespace vm
 
 struct LVDJSONStruct : vm::json::Serializable<LVDJSONStruct>
@@ -69,3 +74,5 @@ struct LVDJSONStruct : vm::json::Serializable<LVDJSONStruct>
 	VM_JSON_FIELD( float, samplingRate );
 	VM_JSON_FIELD( std::vector<float>, spacing );
 };
+
+std::string GetPresetTransferFunctionText(const std::string &name);
