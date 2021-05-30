@@ -452,6 +452,7 @@ int main( int argc, char **argv )
 				rayCount++;
 				if ( rayCount % ( ( width * height ) / 100 ) == 0 ) {
 					app->renderProgress = rayCount * 1.0 / ( width * height );
+					LOG_INFO<<"Progress: "<<app->renderProgress * 100.0<<"%";
 				}
 			}
 		}
