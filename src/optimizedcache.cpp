@@ -6,15 +6,15 @@ namespace
 
 namespace vm
 {
-void OptimizedCache::PageSwapIn_Implement( void *currentLevelPage, const void *nextLevelPage )
+void MortonCodeCache::PageSwapIn_Implement( void *currentLevelPage, const void *nextLevelPage )
 {
 	memcpy( currentLevelPage, nextLevelPage, GetPageSize() );
 }
-void OptimizedCache::PageSwapOut_Implement( void *nextLevelPage, const void *currentLevel )
+void MortonCodeCache::PageSwapOut_Implement( void *nextLevelPage, const void *currentLevel )
 {
 	memcpy( nextLevelPage, currentLevel, GetPageSize() );
 }
-void OptimizedCache::PageWrite_Implement( void *currentLevelPage, const void *userData )
+void MortonCodeCache::PageWrite_Implement( void *currentLevelPage, const void *userData )
 {
 	memcpy( currentLevelPage, userData, GetPageSize() );
 }

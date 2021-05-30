@@ -11,7 +11,6 @@
 #include <VMUtils/log.hpp>
 #include <VMUtils/cmdline.hpp>
 #include <VMUtils/timer.hpp>
-#include <VMFoundation/largevolumecache.h>
 #include <VMFoundation/mappingtablemanager.h>
 #include <VMFoundation/rawreader.h>
 #include <VMFoundation/pluginloader.h>
@@ -27,6 +26,7 @@
 #include <SDLImpl.hpp>
 
 #include <voxelman.h>
+#include <optimizedcache.h>
 using namespace vm;
 using namespace std;
 
@@ -63,7 +63,7 @@ vector<Ref<Block3DCache>> SetupVolumeData(
 					return {};
 				}
 				p->Open( fileName.c_str() );
-				volumeData[ i ] = VM_NEW<Block3DCache>( p, [ &availableHostMemoryHint ]( I3DBlockDataInterface *p ) {
+				volumeData[ i ] = VM_NEW<MortonCodeCache>( p, [ &availableHostMemoryHint ]( I3DBlockDataInterface *p ) {
 					// this a
 					const auto bytes = p->GetDataSizeWithoutPadding().Prod();
 					size_t th = 2 * 1024 * 1024 * size_t( 1024 );  // 2GB as default
