@@ -124,7 +124,7 @@ int main( int argc, char **argv )
 	auto LogHandler = [](LogLevel level, const LogContext* ctx, const char* log){
 		static std::string voxelman = "[VoxelMan]: ";
 		auto output = voxelman + std::string(log);
-		std::cout<<output<<std::endl;
+		std::cout<<output;
 	};
 	Logger::InstallLogMsgHandler(LogHandler);
 
@@ -425,7 +425,8 @@ int main( int argc, char **argv )
 				auto globalPos = ray( tPrev );
 				auto val = SampleFromVolume( cellIndex, globalPos );
 				auto sampledColorAndOpacity = SampleFromTransferFunction( val );
-				color = color + sampledColorAndOpacity * Vec4f( Vec3f( sampledColorAndOpacity ), 1.0 ) * ( 1.0 - color.w );
+				auto a = sampledColorAndOpacity.w;
+				color = color + sampledColorAndOpacity * Vec4f( a,a,a, 1.0 ) * ( 1.0 - color.w );
 				tPrev += step;
 			}
 			cellIndex = intervalIter.CellIndex;
@@ -484,11 +485,11 @@ int main( int argc, char **argv )
 		} else {
 			LOG_INFO << "Offscreen rendering... \n";
 			cauto &screenSize = app->screenSize;
-			auto bytes = screenSize.Prod();
-			std::unique_ptr<Pixel_t> image( new Pixel_t[ bytes ] );
-			CPURenderLoop( image.get(), screenSize.x, screenSize.y, grid );
+			auto pixels = screenSize.Prod();
+			std::vector<Pixel_t> image(pixels);
+			CPURenderLoop( image.data(), screenSize.x, screenSize.y, grid );
 			LOG_INFO << "Rendering finished, writing image ...";
-			stbi_write_png( "render_result.png", screenSize.x, screenSize.y, 4, image.get(), screenSize.x * 4 );
+			stbi_write_png( "render_result.png", screenSize.x, screenSize.y, 4, image.data(), screenSize.x * 4 );
 		}
 		return 0;
 	};
