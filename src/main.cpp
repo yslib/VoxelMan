@@ -422,11 +422,11 @@ int main( int argc, char **argv )
 			++intervalIter;
 			tCur = intervalIter.Pos;
 			while ( tPrev < tCur && tPrev < tMax && color.w < 0.99 ) {
-				auto globalPos = ray( tPrev );
-				auto val = SampleFromVolume( cellIndex, globalPos );
-				auto sampledColorAndOpacity = SampleFromTransferFunction( val );
-				auto a = sampledColorAndOpacity.w;
-				color = color + sampledColorAndOpacity * Vec4f( a,a,a, 1.0 ) * ( 1.0 - color.w );
+				cauto globalPos = ray( tPrev );
+				cauto val = SampleFromVolume( cellIndex, globalPos );
+				cauto sampledColorAndOpacity = SampleFromTransferFunction( val );
+				cauto a = sampledColorAndOpacity.w;
+				color = color + sampledColorAndOpacity * Vec4f( Vec3f(a), 1.0 ) * ( 1.0 - color.w );
 				tPrev += step;
 			}
 			cellIndex = intervalIter.CellIndex;
@@ -453,7 +453,6 @@ int main( int argc, char **argv )
 				rayCount++;
 				if ( rayCount % ( ( width * height ) / 100 ) == 0 ) {
 					app->renderProgress = rayCount * 1.0 / ( width * height );
-					LOG_INFO<<"Progress: "<<app->renderProgress * 100.0<<"%";
 				}
 			}
 		}
