@@ -1,4 +1,9 @@
-#include <optimizedcache.h>
+#include <gtest/gtest.h>
+#include <VMUtils/timer.hpp>
+#include <VMat/geometry.h>
+#include <VMat/transformation.h>
+#include <VMGraphics/camera.h>
+#include <VMat/numeric.h>
 
 const uint32_t morton256_x[ 256 ] = {
 	0x00000000,
@@ -109,20 +114,159 @@ const uint32_t morton256_z[ 256 ] = {
 	0x00924004, 0x00924020, 0x00924024, 0x00924100, 0x00924104, 0x00924120, 0x00924124, 0x00924800,
 	0x00924804, 0x00924820, 0x00924824, 0x00924900, 0x00924904, 0x00924920, 0x00924924
 };
+uint64_t MortonEncode_LUT( unsigned int x, unsigned int y, unsigned int z )
+{
+	uint64_t answer = 0;
+	answer = morton256_z[ ( z >> 16 ) & 0xFF ] |  // we start by shifting the third byte, since we only look at the first 21 bits
+			 morton256_y[ ( y >> 16 ) & 0xFF ] |
+			 morton256_x[ ( x >> 16 ) & 0xFF ];
+	answer = answer << 48 | morton256_z[ ( z >> 8 ) & 0xFF ] |	// shifting second byte
+			 morton256_y[ ( y >> 8 ) & 0xFF ] |
+			 morton256_x[ ( x >> 8 ) & 0xFF ];
+	answer = answer << 24 |
+			 morton256_z[ (z)&0xFF ] |	// first byte
+			 morton256_y[ (y)&0xFF ] |
+			 morton256_x[ (x)&0xFF ];
+	return answer;
+}
+TEST( test_morton_code, basic )
+{
+	using namespace vm;
+	Vec3i bytes( 256*4, 256*4, 256*4 );
+    Vec3i blockSize(256,256,256);
+	std::vector<char> data( blockSize.Prod());
+
+	Timer timer;
+	Bound3i bound( { 0, 0, 0 }, bytes.ToPoint3() );
+
+	auto g = bound.GenGrid( { 4, 4, 4 } );
+	float step = 0.01;
+	ASSERT_EQ( Linear( { 255, 255, 255 }, { 256, 256 } ), MortonEncode_LUT( 255, 255, 255 ) );
+
+    auto eye = Point3f{ -500, -500, -500 };
+    auto center = Point3f{ 0, 0, 0 };
+    auto up = Vec3f{ 0, 1, 0 };
+    auto camera = ViewingTransform( eye, up, center );
+
+    auto fov = 60.f;
+    Vec2i screenSize{1024,768};
+    auto aspect = 1.0 * screenSize.x / screenSize.y;
+
+    auto lookAt = camera.GetViewMatrixWrapper().LookAt();
+    auto inverseLookAt = lookAt.Inversed();
+    auto persp = Perspective( fov, aspect, 0.01, 1000 );
+    auto invPersp = persp.Inversed();
+
+    auto screenToPerps =
+      Translate( -1, 1, 0 ) * Scale( 2, -2, 1 ) *
+      Scale( 1.0 / screenSize.x, 1.0 / screenSize.y, 1.0 );
+
+    auto screenToWorld = inverseLookAt * invPersp * screenToPerps;
+
+	int res;
+
+	timer.start();
+	char v;
+	std::cin >> v;
+
+	auto TrilinearSampler = [ & ]( const unsigned char *data, const Point3f &sp ) -> unsigned char {
+		auto SampleI = [ & ]( const unsigned char *data, const Point3i &ip ) -> unsigned char {
+			if ( ip.x >= blockSize.x || ip.y >= blockSize.y || ip.z >= blockSize.z ) {
+				return 0.f;
+			}
+			return *( data + Linear( ip, Size2( blockSize.x, blockSize.y ) ) );
+		};
+		const auto pi = Point3i( std::floor( sp.x ), std::floor( sp.y ), std::floor( sp.z ) );
+		const auto d = sp - static_cast<Point3f>( pi );
+		const auto d00 = Lerp( d.x, SampleI( data, pi ), SampleI( data, pi + Vector3i( 1, 0, 0 ) ) );
+		const auto d10 = Lerp( d.x, SampleI( data, pi + Vector3i( 0, 1, 0 ) ), SampleI( data, pi + Vector3i( 1, 1, 0 ) ) );
+		const auto d01 = Lerp( d.x, SampleI( data, pi + Vector3i( 0, 0, 1 ) ), SampleI( data, pi + Vector3i( 1, 0, 1 ) ) );
+		const auto d11 = Lerp( d.x, SampleI( data, pi + Vector3i( 0, 1, 1 ) ), SampleI( data, pi + Vector3i( 1, 1, 1 ) ) );
+		const auto d0 = Lerp( d.y, d00, d10 );
+		const auto d1 = Lerp( d.y, d01, d11 );
+		return Lerp( d.z, d0, d1 );
+	};
+
+	auto TrilinearSamplerMortonCode = [ & ]( const unsigned char *data, const Point3f &sp ) -> unsigned char {
+		auto SampleI = [ & ]( const unsigned char *data, const Point3i &ip ) -> unsigned char {
+			if ( ip.x >= blockSize.x || ip.y >= blockSize.y || ip.z >= blockSize.z ) {
+				return 0.f;
+			}
+			return *( data + MortonEncode_LUT( ip.x,ip.y,ip.z ) );
+		};
+		const auto pi = Point3i( std::floor( sp.x ), std::floor( sp.y ), std::floor( sp.z ) );
+		const auto d = sp - static_cast<Point3f>( pi );
+		const auto d00 = Lerp( d.x, SampleI( data, pi ), SampleI( data, pi + Vector3i( 1, 0, 0 ) ) );
+		const auto d10 = Lerp( d.x, SampleI( data, pi + Vector3i( 0, 1, 0 ) ), SampleI( data, pi + Vector3i( 1, 1, 0 ) ) );
+		const auto d01 = Lerp( d.x, SampleI( data, pi + Vector3i( 0, 0, 1 ) ), SampleI( data, pi + Vector3i( 1, 0, 1 ) ) );
+		const auto d11 = Lerp( d.x, SampleI( data, pi + Vector3i( 0, 1, 1 ) ), SampleI( data, pi + Vector3i( 1, 1, 1 ) ) );
+		const auto d0 = Lerp( d.y, d00, d10 );
+		const auto d1 = Lerp( d.y, d01, d11 );
+		return Lerp( d.z, d0, d1 );
+	};
+
+	auto SampleFromVolume = [ & ]( const Point3i &cellIndex, const Point3f &globalSamplePos ) -> unsigned char {
+		auto innerOffset = ( globalSamplePos.ToVector3() - Vec3f( cellIndex.ToVector3() * blockSize ) ).ToPoint3();
+		return TrilinearSampler( (unsigned char*)data.data(), innerOffset );
+	};
+	// linear code
+	auto begin = timer.elapsed().s();
+
+	for ( int y = 0; y < screenSize.y; y++ ) {
+		for ( int x = 0; x < screenSize.y; x++ ) {
+			auto pScreen = Point3f( x, y, 0 );
+			auto pWorld = screenToWorld * pScreen;
+			auto dir = pWorld - eye;
+			auto r = Ray( dir, eye );
+			auto a = g.IntersectWith( r );
+            float tPrev = a.Pos, tCur, tMax = a.Max - step;
+			auto cellIndex = a.CellIndex;
+            while ( a.Valid() ) {
+                ++a;
+                tCur = a.Pos;
+                while ( tPrev < tCur && tPrev < tMax ) {
+                    auto globalPos = r( tPrev );
+                    auto & globalSamplePos = globalPos;
+                    auto innerOffset = ( globalSamplePos.ToVector3() - Vec3f( cellIndex.ToVector3() * blockSize ) ).ToPoint3();
+					res = TrilinearSampler((unsigned char*)data.data(),innerOffset) + v;
+                    tPrev += step;
+                }
+				cellIndex = a.CellIndex;
+                tPrev = tCur;
+            }
+		}
+	}
+	auto linearTime = timer.elapsed().s() - begin;
 
 
-namespace vm
-{
-void MortonCodeCache::PageSwapIn_Implement( void *currentLevelPage, const void *nextLevelPage )
-{
-	memcpy( currentLevelPage, nextLevelPage, GetPageSize() );
+	// morton code
+	begin = timer.elapsed().s();
+
+	for ( int y = 0; y < screenSize.y; y++ ) {
+		for ( int x = 0; x < screenSize.y; x++ ) {
+			auto pScreen = Point3f( x, y, 0 );
+			auto pWorld = screenToWorld * pScreen;
+			auto dir = pWorld - eye;
+			auto r = Ray( dir, eye );
+			auto a = g.IntersectWith( r );
+            float tPrev = a.Pos, tCur, tMax = a.Max - step;
+			auto cellIndex = a.CellIndex;
+            while ( a.Valid() ) {
+                ++a;
+                tCur = a.Pos;
+                while ( tPrev < tCur && tPrev < tMax ) {
+                    auto globalPos = r( tPrev );
+                    auto & globalSamplePos = globalPos;
+                    auto innerOffset = ( globalSamplePos.ToVector3() - Vec3f( cellIndex.ToVector3() * blockSize ) ).ToPoint3();
+					res = TrilinearSamplerMortonCode((unsigned char*)data.data(),innerOffset) + v;
+                    tPrev += step;
+                }
+				cellIndex = a.CellIndex;
+                tPrev = tCur;
+            }
+		}
+	}
+	auto mortonTime = timer.elapsed().s() - begin;
+	std::cout<<res<<std::endl;
+	std::cout << "Time comsuming of Linear/Morton: " << linearTime / mortonTime << " of " << linearTime << " " << mortonTime << std::endl;
 }
-void MortonCodeCache::PageSwapOut_Implement( void *nextLevelPage, const void *currentLevel )
-{
-	memcpy( nextLevelPage, currentLevel, GetPageSize() );
-}
-void MortonCodeCache::PageWrite_Implement( void *currentLevelPage, const void *userData )
-{
-	memcpy( currentLevelPage, userData, GetPageSize() );
-}
-}  // namespace vm

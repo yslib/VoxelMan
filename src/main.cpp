@@ -425,8 +425,7 @@ int main( int argc, char **argv )
 				cauto globalPos = ray( tPrev );
 				cauto val = SampleFromVolume( cellIndex, globalPos );
 				cauto sampledColorAndOpacity = SampleFromTransferFunction( val );
-				cauto a = sampledColorAndOpacity.w;
-				color = color + sampledColorAndOpacity * Vec4f( Vec3f(a), 1.0 ) * ( 1.0 - color.w );
+				color = color + sampledColorAndOpacity * Vec4f( Vec3f(sampledColorAndOpacity.w), 1.0 ) * ( 1.0 - color.w );
 				tPrev += step;
 			}
 			cellIndex = intervalIter.CellIndex;
@@ -463,6 +462,9 @@ int main( int argc, char **argv )
 		auto &dataBound = app->dataBound;
 		auto grid = dataBound.GenGrid( app->gridCount );
 		if ( !app->hasWindow && window.HasWindow() ) {
+			window.MouseEvent = MouseEventHandler;
+			window.KeyboardEvent = KeyboardEventHandler;
+			window.FileDropEvent = FileDropEventHandler;
 			while ( window.Wait() == true ) {
 				window.DispatchEvent();
 				if ( window.Quit ) {
@@ -493,9 +495,6 @@ int main( int argc, char **argv )
 		return 0;
 	};
 
-	window.MouseEvent = MouseEventHandler;
-	window.KeyboardEvent = KeyboardEventHandler;
-	window.FileDropEvent = FileDropEventHandler;
 
 	std::invoke( InitCmd, argc, argv );
 	std::invoke( UpdateTransform );											 // Initial transform
