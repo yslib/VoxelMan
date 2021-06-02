@@ -4,6 +4,7 @@
 #include <VMat/transformation.h>
 #include <VMGraphics/camera.h>
 #include <VMat/numeric.h>
+#include <random>
 
 const uint32_t morton256_x[ 256 ] = {
 	0x00000000,
@@ -129,17 +130,93 @@ uint64_t MortonEncode_LUT( unsigned int x, unsigned int y, unsigned int z )
 			 morton256_x[ (x)&0xFF ];
 	return answer;
 }
+TEST(test_moton_code, random){
+	using namespace vm;
+	Timer timer;
+	timer.start();
+	unsigned char v;
+	std::cin>>v;
+	Vec3i blockSize(256,256,256);
+	std::vector<unsigned char> data(blockSize.Prod());
+	auto TrilinearSampler = [ & ]( const unsigned char *data, const Point3f &sp ) -> unsigned char {
+		auto SampleI = [ & ]( const unsigned char *data, const Point3i &ip ) -> unsigned char {
+			if ( ip.x >= blockSize.x || ip.y >= blockSize.y || ip.z >= blockSize.z ) {
+				return 0.f;
+			}
+			return *( data + Linear( ip, Size2( blockSize.x, blockSize.y ) ) );
+		};
+		const auto pi = Point3i( std::floor( sp.x ), std::floor( sp.y ), std::floor( sp.z ) );
+		const auto d = sp - static_cast<Point3f>( pi );
+		const auto d00 = Lerp( d.x, SampleI( data, pi ), SampleI( data, pi + Vector3i( 1, 0, 0 ) ) );
+		const auto d10 = Lerp( d.x, SampleI( data, pi + Vector3i( 0, 1, 0 ) ), SampleI( data, pi + Vector3i( 1, 1, 0 ) ) );
+		const auto d01 = Lerp( d.x, SampleI( data, pi + Vector3i( 0, 0, 1 ) ), SampleI( data, pi + Vector3i( 1, 0, 1 ) ) );
+		const auto d11 = Lerp( d.x, SampleI( data, pi + Vector3i( 0, 1, 1 ) ), SampleI( data, pi + Vector3i( 1, 1, 1 ) ) );
+		const auto d0 = Lerp( d.y, d00, d10 );
+		const auto d1 = Lerp( d.y, d01, d11 );
+		return Lerp( d.z, d0, d1 );
+	};
+
+	auto TrilinearSamplerMortonCode = [ & ]( const unsigned char *data, const Point3f &sp ) -> unsigned char {
+		auto SampleI = [ & ]( const unsigned char *data, const Point3i &ip ) -> unsigned char {
+			if ( ip.x >= blockSize.x || ip.y >= blockSize.y || ip.z >= blockSize.z ) {
+				return 0.f;
+			}
+			return *( data + MortonEncode_LUT( ip.x,ip.y,ip.z ) );
+		};
+		const auto pi = Point3i( std::floor( sp.x ), std::floor( sp.y ), std::floor( sp.z ) );
+		const auto d = sp - static_cast<Point3f>( pi );
+		const auto d00 = Lerp( d.x, SampleI( data, pi ), SampleI( data, pi + Vector3i( 1, 0, 0 ) ) );
+		const auto d10 = Lerp( d.x, SampleI( data, pi + Vector3i( 0, 1, 0 ) ), SampleI( data, pi + Vector3i( 1, 1, 0 ) ) );
+		const auto d01 = Lerp( d.x, SampleI( data, pi + Vector3i( 0, 0, 1 ) ), SampleI( data, pi + Vector3i( 1, 0, 1 ) ) );
+		const auto d11 = Lerp( d.x, SampleI( data, pi + Vector3i( 0, 1, 1 ) ), SampleI( data, pi + Vector3i( 1, 1, 1 ) ) );
+		const auto d0 = Lerp( d.y, d00, d10 );
+		const auto d1 = Lerp( d.y, d01, d11 );
+		return Lerp( d.z, d0, d1 );
+	};
+	int sampleCount = 100000000;
+	int res;
+
+	auto begin = timer.elapsed().s();
+	for(int i = 0;i<sampleCount;i++){
+		std::uniform_real_distribution<float> u(0.0f,(float)blockSize.x);
+		std::default_random_engine e;
+		auto x = u(e);
+		auto y = u(e);
+		auto z = u(e);
+		auto sp = Point3f(x,y,z);
+		res += TrilinearSampler((unsigned char*)data.data(),sp) + v;
+	}
+	auto linearTime = timer.elapsed().s() - begin;
+
+	begin = timer.elapsed().s();
+	for(int i = 0;i<sampleCount;i++){
+		std::uniform_real_distribution<float> u(0.0f,(float)blockSize.x);
+		std::default_random_engine e;
+		auto x = u(e);
+		auto y = u(e);
+		auto z = u(e);
+		auto sp = Point3f(x,y,z);
+		res += TrilinearSamplerMortonCode((unsigned char*)data.data(),sp) + v;
+	}
+
+	auto mortonTime = timer.elapsed().s() - begin;
+	std::cout<<res;
+
+	std::cout<<linearTime<<" "<<mortonTime<<" "<<linearTime/mortonTime<<std::endl;
+
+}
+
 TEST( test_morton_code, basic )
 {
 	using namespace vm;
-	Vec3i bytes( 256*4, 256*4, 256*4 );
+	Vec3i bytes( 256, 256, 256 );
     Vec3i blockSize(256,256,256);
 	std::vector<char> data( blockSize.Prod());
 
 	Timer timer;
 	Bound3i bound( { 0, 0, 0 }, bytes.ToPoint3() );
 
-	auto g = bound.GenGrid( { 4, 4, 4 } );
+	auto g = bound.GenGrid( { 1,1,1 } );
 	float step = 0.01;
 	ASSERT_EQ( Linear( { 255, 255, 255 }, { 256, 256 } ), MortonEncode_LUT( 255, 255, 255 ) );
 
@@ -213,13 +290,13 @@ TEST( test_morton_code, basic )
 	auto begin = timer.elapsed().s();
 
 	for ( int y = 0; y < screenSize.y; y++ ) {
-		for ( int x = 0; x < screenSize.y; x++ ) {
+		for ( int x = 0; x < screenSize.x; x++ ) {
 			auto pScreen = Point3f( x, y, 0 );
 			auto pWorld = screenToWorld * pScreen;
 			auto dir = pWorld - eye;
 			auto r = Ray( dir, eye );
 			auto a = g.IntersectWith( r );
-            float tPrev = a.Pos, tCur, tMax = a.Max - step;
+            float tPrev = a.Pos, tCur, tMax = a.Max;
 			auto cellIndex = a.CellIndex;
             while ( a.Valid() ) {
                 ++a;
@@ -228,6 +305,9 @@ TEST( test_morton_code, basic )
                     auto globalPos = r( tPrev );
                     auto & globalSamplePos = globalPos;
                     auto innerOffset = ( globalSamplePos.ToVector3() - Vec3f( cellIndex.ToVector3() * blockSize ) ).ToPoint3();
+					innerOffset.x = Clamp(innerOffset.x,0.0,float(blockSize.x - 1));
+					innerOffset.y = Clamp(innerOffset.y,0.0,float(blockSize.y - 1));
+					innerOffset.z = Clamp(innerOffset.z,0.0,float(blockSize.z - 1));
 					res = TrilinearSampler((unsigned char*)data.data(),innerOffset) + v;
                     tPrev += step;
                 }
@@ -243,13 +323,13 @@ TEST( test_morton_code, basic )
 	begin = timer.elapsed().s();
 
 	for ( int y = 0; y < screenSize.y; y++ ) {
-		for ( int x = 0; x < screenSize.y; x++ ) {
+		for ( int x = 0; x < screenSize.x; x++ ) {
 			auto pScreen = Point3f( x, y, 0 );
 			auto pWorld = screenToWorld * pScreen;
 			auto dir = pWorld - eye;
 			auto r = Ray( dir, eye );
 			auto a = g.IntersectWith( r );
-            float tPrev = a.Pos, tCur, tMax = a.Max - step;
+            float tPrev = a.Pos, tCur, tMax = a.Max;
 			auto cellIndex = a.CellIndex;
             while ( a.Valid() ) {
                 ++a;
@@ -258,6 +338,9 @@ TEST( test_morton_code, basic )
                     auto globalPos = r( tPrev );
                     auto & globalSamplePos = globalPos;
                     auto innerOffset = ( globalSamplePos.ToVector3() - Vec3f( cellIndex.ToVector3() * blockSize ) ).ToPoint3();
+					innerOffset.x = Clamp(innerOffset.x,0.0,float(blockSize.x - 1));
+					innerOffset.y = Clamp(innerOffset.y,0.0,float(blockSize.y - 1));
+					innerOffset.z = Clamp(innerOffset.z,0.0,float(blockSize.z - 1));
 					res = TrilinearSamplerMortonCode((unsigned char*)data.data(),innerOffset) + v;
                     tPrev += step;
                 }
