@@ -118,7 +118,7 @@ int main()
 	}
 	auto mortonTime = timer.elapsed().s() - begin;
 
-	// linear code
+	//linear code
 	begin = timer.elapsed().s();
 	for ( int i = 0; i < cases; i++ ) {
 		for ( int y = 0; y < screenSize.y; y++ ) {
