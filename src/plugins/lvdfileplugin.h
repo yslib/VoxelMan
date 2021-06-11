@@ -27,11 +27,13 @@ public:
 	int Get3DPageSizeInLog() const override { return lvdReader->BlockSizeInLog(); }
 	Size3 Get3DPageCount() const override { return lvdReader->SizeByBlock(); }
 
+	void UnlockPage(size_t pageID) override{}
+
 	void Flush() override;
 
-	 void Write( const void *page, size_t pageID, bool flush )override;
+	void Write( const void *page, size_t pageID, bool flush ) override;
 
-	 void Flush( size_t pageID ) override;
+	void Flush( size_t pageID ) override;
 
 private:
 };

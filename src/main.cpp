@@ -385,7 +385,7 @@ int main( int argc, char **argv )
 	auto TrilinearSampler = [ & ]( const unsigned char *data, const Point3f &sp ) -> unsigned char {
 		auto SampleI = [ & ]( const unsigned char *data, const Point3i &ip ) -> unsigned char {
 			auto &blockSize = app->blockSize;
-			if ( ip.x >= blockSize.x || ip.y >= blockSize.y || ip.z >= blockSize.z ) {	// boundary: a bad perfermance workaround
+			if ( ip.x >= blockSize.x || ip.y >= blockSize.y || ip.z >= blockSize.z ) {
 				return 0.f;
 			}
 			return *( data + Linear( ip, Size2( blockSize.x, blockSize.y ) ) );
@@ -401,29 +401,19 @@ int main( int argc, char **argv )
 		return Lerp( d.z, d0, d1 );
 	};
 
-	auto SampleFromVolume = [ & ]( const Point3i &cellIndex, const Point3f &globalSamplePos ) -> unsigned char {
-		auto &blockSize = app->blockSize;
-
-		constexpr int padding = 0;	// reserved for future use
-		(void)padding;
-
-		auto innerOffset = ( globalSamplePos.ToVector3() - Vec3f( cellIndex.ToVector3() * blockSize ) ).ToPoint3();
-		auto blockData = app->volumeData[ 0 ]->GetPage( { cellIndex.x, cellIndex.y, cellIndex.z } );
-		return TrilinearSampler( (const unsigned char *)blockData, innerOffset );
-	};
-
 	auto Raycast = [ & ]( const Ray &ray, RayIntervalIter &intervalIter ) -> Vec4f {
 		cauto &step = app->step;
-
 		float tPrev = intervalIter.Pos, tCur, tMax = intervalIter.Max - step;
 		Point3i cellIndex = intervalIter.CellIndex;
 		Vec4f color( 0, 0, 0, 0 );
 		while ( intervalIter.Valid() && color.w < 0.99 ) {
 			++intervalIter;
 			tCur = intervalIter.Pos;
+			auto blockData = app->volumeData[ 0 ]->GetPage( { cellIndex.x, cellIndex.y, cellIndex.z } );
 			while ( tPrev < tCur && tPrev < tMax && color.w < 0.99 ) {
 				cauto globalPos = ray( tPrev );
-				cauto val = SampleFromVolume( cellIndex, globalPos );
+				auto innerOffset = ( globalPos.ToVector3() - Vec3f( cellIndex.ToVector3() * app->blockSize ) ).ToPoint3();
+				cauto val = TrilinearSampler( (const unsigned char *)blockData, innerOffset );
 				cauto sampledColorAndOpacity = SampleFromTransferFunction( val );
 				color = color + sampledColorAndOpacity * Vec4f( Vec3f(sampledColorAndOpacity.w), 1.0 ) * ( 1.0 - color.w );
 				tPrev += step;
@@ -488,9 +478,13 @@ int main( int argc, char **argv )
 			cauto &screenSize = app->screenSize;
 			auto pixels = screenSize.Prod();
 			std::vector<Pixel_t> image(pixels);
+			auto start = app->Time.elapsed();
 			CPURenderLoop( image.data(), screenSize.x, screenSize.y, grid );
+			auto end = app->Time.elapsed();
+			auto sec = end.s() - start.s();
 			LOG_INFO << "Rendering finished, writing image ...";
 			stbi_write_png( "render_result.png", screenSize.x, screenSize.y, 4, image.data(), screenSize.x * 4 );
+			LOG_INFO << "Time cost: "<<sec<<"(s)";
 		}
 		return 0;
 	};
